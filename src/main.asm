@@ -182,21 +182,27 @@ MainLoop:
 
 OffscreenTextUpdate:
 
-    ; Erase text from its old position.
+    // ; Erase text from its old position.
 
-    jsr Text_EraseAt
-
-
-    ; Calculate its new state.
-
-    jsr UpdateTextBounceX
-    jsr UpdateTextColor
+    // jsr Text_EraseAt
 
 
-    ; Draw text at its new position.
+    // ; Calculate its new state.
 
-    jsr Text_PrintAt
+    // jsr UpdateTextBounceX
+    // jsr UpdateTextColor
 
+
+    // ; Draw text at its new position.
+
+    // jsr Text_PrintAt
+
+
+    ; --------------------------------------------------------
+    ; Scroll the selected text row left by one character.
+    ; --------------------------------------------------------
+
+    jsr UpdateTextScrollLeft
 
     ; Return to frame synchronization.
 
@@ -240,6 +246,118 @@ WaitForUpdateRasterEnd:
 
     rts
 
+
+; ============================================================
+; TEXT SCROLL LEFT
+;
+; Shifts one complete 40-character screen row left by one
+; character position.
+;
+; A new character from ScrollText is inserted at column 39.
+;
+; ScrollText is zero terminated. When the terminator is
+; reached, ScrollTextIndex returns to zero and the message
+; begins again.
+; ============================================================
+
+UpdateTextScrollLeft:
+
+    ; --------------------------------------------------------
+    ; Calculate address of column 0 on the scrolling row.
+    ;
+    ; Text_CalculateScreenPosition uses TextColumn, so save
+    ; the current value before temporarily setting it to zero.
+    ; --------------------------------------------------------
+
+    lda TextColumn
+    pha
+
+    lda #0
+    sta TextColumn
+
+    jsr Text_CalculateScreenPosition
+
+
+    ; --------------------------------------------------------
+    ; Shift screen characters:
+    ;
+    ; column 1 -> column 0
+    ; column 2 -> column 1
+    ; ...
+    ; column 39 -> column 38
+    ; --------------------------------------------------------
+
+    ldy #0
+
+ScrollLeftCharacterLoop:
+
+    iny
+
+    lda (ScreenPtrLo),y
+
+    dey
+
+    sta (ScreenPtrLo),y
+
+    iny
+
+    cpy #39
+    bne ScrollLeftCharacterLoop
+
+
+    ; --------------------------------------------------------
+    ; Restore TextColumn.
+    ; --------------------------------------------------------
+
+    pla
+    sta TextColumn
+
+
+    ; --------------------------------------------------------
+    ; Get next character from scrolling text.
+    ; --------------------------------------------------------
+
+    ldy ScrollTextIndex
+
+    lda ScrollText,y
+
+    ; Zero means end of message.
+
+    bne ScrollLeftCharacterReady
+
+
+    ; --------------------------------------------------------
+    ; Restart message from beginning.
+    ; --------------------------------------------------------
+
+    lda #0
+    sta ScrollTextIndex
+
+    tay
+
+    lda ScrollText,y
+
+
+ScrollLeftCharacterReady:
+
+    ; --------------------------------------------------------
+    ; Put new character into column 39.
+    ;
+    ; ScreenPtr still points to column zero of TextRow.
+    ; --------------------------------------------------------
+
+    ldy #39
+
+    sta (ScreenPtrLo),y
+
+
+    ; --------------------------------------------------------
+    ; Advance message position.
+    ; --------------------------------------------------------
+
+    inc ScrollTextIndex
+
+    rts
 
 ; ============================================================
 ; TEXT MOVEMENT UPDATE
@@ -387,6 +505,11 @@ BlastshaftText:
     !byte 0
 
 
+ScrollText:
+
+    !scr "blastshaft   "
+    !byte 0
+
 
 ; ============================================================
 ; PROGRAM VARIABLES
@@ -415,3 +538,8 @@ TextColor:
 FrameCounter:
 
     !byte 0
+
+ScrollTextIndex:
+
+    !byte 0
+
