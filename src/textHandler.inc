@@ -1,20 +1,40 @@
+; ============================================================
+; BLASTSHAFT - TEXT HANDLER DEFINITIONS
+; ============================================================
+
+
 ; ------------------------------------------------------------
-; Blastshaft - Text Handler definitions
+; C64 MEMORY LOCATIONS
 ; ------------------------------------------------------------
 
-SCREEN_RAM = $0400
-COLOR_RAM  = $D800
+SCREEN_RAM      = $0400
+COLOR_RAM       = $D800
 
-; Zero-page workspace
-TextPtrLo  = $02
-TextPtrHi  = $03
+BORDER_COLOR    = $D020
+BACKGROUND_COLOR = $D021
 
-TextCol    = $04
-TextRow    = $05
-TextColor  = $06
+RASTER_LINE     = $D012
 
-ScreenPtrLo = $07
-ScreenPtrHi = $08
 
-ColorPtrLo = $09
-ColorPtrHi = $0A
+; ------------------------------------------------------------
+; ZERO PAGE POINTERS
+;
+; $FB-$FE are being used by our text routines.
+; ------------------------------------------------------------
+
+TextPtrLo       = $FB
+TextPtrHi       = $FC
+
+ScreenPtrLo     = $FD
+ScreenPtrHi     = $FE
+
+
+; ------------------------------------------------------------
+; TEXT MOVEMENT CONSTANTS
+; ------------------------------------------------------------
+
+TEXT_DIR_RIGHT  = 0
+TEXT_DIR_LEFT   = 1
+
+TEXT_MIN_COL    = 2
+TEXT_MAX_COL    = 28
