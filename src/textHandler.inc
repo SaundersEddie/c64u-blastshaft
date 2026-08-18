@@ -47,5 +47,11 @@ TEXT_MAX_COL        = 28
 TEXT_UPDATE_DELAY   = 6
 
 ; Raster line used for screen updates.
-
 RASTER_UPDATE_LINE  = 250
+
+; ------------------------------------------------------------
+; TEXT MOVEMENT MODES
+; ------------------------------------------------------------
+
+TEXT_MODE_BOUNCE_X      = 0
+TEXT_MODE_SCROLL_LEFT   = 1

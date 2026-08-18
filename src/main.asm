@@ -171,40 +171,17 @@ MainLoop:
     lda #0
     sta FrameCounter
 
-
 ; ============================================================
 ; OFF-SCREEN TEXT UPDATE
 ;
 ; The VIC is now below the main visible display.
 ;
-; All erase / state change / redraw work happens here.
+; Select and run the active text movement mode.
 ; ============================================================
 
 OffscreenTextUpdate:
 
-    // ; Erase text from its old position.
-
-    // jsr Text_EraseAt
-
-
-    // ; Calculate its new state.
-
-    // jsr UpdateTextBounceX
-    // jsr UpdateTextColor
-
-
-    // ; Draw text at its new position.
-
-    // jsr Text_PrintAt
-
-
-    ; --------------------------------------------------------
-    ; Scroll the selected text row left by one character.
-    ; --------------------------------------------------------
-
-    jsr UpdateTextScrollLeft
-
-    ; Return to frame synchronization.
+    jsr UpdateTextMovement
 
     jmp MainLoop
 
@@ -243,6 +220,59 @@ WaitForUpdateRasterEnd:
     lda RASTER_LINE
     cmp #RASTER_UPDATE_LINE
     beq WaitForUpdateRasterEnd
+
+    rts
+
+; ============================================================
+; TEXT MOVEMENT DISPATCHER
+;
+; Reads TextMovementMode and calls the matching movement
+; routine.
+;
+; Current modes:
+;
+;   TEXT_MODE_BOUNCE_X
+;   TEXT_MODE_SCROLL_LEFT
+; ============================================================
+
+UpdateTextMovement:
+
+    lda TextMovementMode
+
+    cmp #TEXT_MODE_BOUNCE_X
+    beq RunTextBounceX
+
+    cmp #TEXT_MODE_SCROLL_LEFT
+    beq RunTextScrollLeft
+
+    ; Unknown mode - do nothing.
+
+    rts
+
+
+RunTextBounceX:
+
+    ; --------------------------------------------------------
+    ; Bounce mode works by erasing the old string,
+    ; changing its position and color, then redrawing it.
+    ; --------------------------------------------------------
+
+    jsr Text_EraseAt
+    jsr UpdateTextBounceX
+    jsr UpdateTextColor
+    jsr Text_PrintAt
+
+    rts
+
+
+RunTextScrollLeft:
+
+    ; --------------------------------------------------------
+    ; Scroll mode shifts an entire character row and its
+    ; matching Color RAM one position left.
+    ; --------------------------------------------------------
+
+    jsr UpdateTextScrollLeft
 
     rts
 
@@ -425,7 +455,7 @@ ScrollColorDone:
     sta TextColumn
 
     rts
-    
+
 ; ============================================================
 ; TEXT MOVEMENT UPDATE
 ; ============================================================
@@ -585,18 +615,14 @@ ScrollText:
 TextColumn:
     !byte 15
 
-
 TextRow:
     !byte 10
-
 
 TextDirection:
     !byte TEXT_DIR_RIGHT
 
-
 TextColor:
     !byte 1
-
 
 FrameCounter:
     !byte 0
@@ -606,3 +632,7 @@ ScrollTextIndex:
 
 ScrollColor:
     !byte 1
+
+TextMovementMode:
+    // !byte TEXT_MODE_SCROLL_LEFT?
+    !byte TEXT_MODE_BOUNCE_X
