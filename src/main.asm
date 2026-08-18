@@ -253,7 +253,10 @@ WaitForUpdateRasterEnd:
 ; Shifts one complete 40-character screen row left by one
 ; character position.
 ;
+; Screen RAM and Color RAM are shifted together.
+;
 ; A new character from ScrollText is inserted at column 39.
+; The new character uses TextColor.
 ;
 ; ScrollText is zero terminated. When the terminator is
 ; reached, ScrollTextIndex returns to zero and the message
@@ -279,38 +282,28 @@ UpdateTextScrollLeft:
 
 
     ; --------------------------------------------------------
-    ; Shift screen characters:
+    ; SHIFT SCREEN RAM LEFT
     ;
-    ; column 1 -> column 0
-    ; column 2 -> column 1
+    ; column 1  -> column 0
+    ; column 2  -> column 1
     ; ...
     ; column 39 -> column 38
     ; --------------------------------------------------------
 
     ldy #0
 
+
 ScrollLeftCharacterLoop:
 
     iny
-
     lda (ScreenPtrLo),y
 
     dey
-
     sta (ScreenPtrLo),y
 
     iny
-
     cpy #39
     bne ScrollLeftCharacterLoop
-
-
-    ; --------------------------------------------------------
-    ; Restore TextColumn.
-    ; --------------------------------------------------------
-
-    pla
-    sta TextColumn
 
 
     ; --------------------------------------------------------
@@ -337,28 +330,102 @@ ScrollLeftCharacterLoop:
 
     lda ScrollText,y
 
-
 ScrollLeftCharacterReady:
 
     ; --------------------------------------------------------
-    ; Put new character into column 39.
+    ; Put new character into column 39 of SCREEN RAM.
     ;
-    ; ScreenPtr still points to column zero of TextRow.
+    ; A currently contains the character from ScrollText.
     ; --------------------------------------------------------
 
     ldy #39
-
     sta (ScreenPtrLo),y
 
 
     ; --------------------------------------------------------
-    ; Advance message position.
+    ; Convert screen pointer into matching COLOR RAM pointer.
+    ;
+    ; $D800 - $0400 = $D400
+    ; --------------------------------------------------------
+
+    clc
+
+    lda ScreenPtrHi
+    adc #$D4
+    sta ScreenPtrHi
+
+
+    ; --------------------------------------------------------
+    ; SHIFT COLOR RAM LEFT
+    ;
+    ; column 1  -> column 0
+    ; column 2  -> column 1
+    ; ...
+    ; column 39 -> column 38
+    ; --------------------------------------------------------
+
+    ldy #0
+
+ScrollLeftColorLoop:
+
+    iny
+    lda (ScreenPtrLo),y
+
+    dey
+    sta (ScreenPtrLo),y
+
+    iny
+    cpy #39
+    bne ScrollLeftColorLoop
+
+
+    ; --------------------------------------------------------
+    ; Set color for newly inserted character.
+    ; --------------------------------------------------------
+
+    ldy #39
+
+    lda ScrollColor
+    sta (ScreenPtrLo),y
+
+
+    ; --------------------------------------------------------
+    ; Advance scroll color.
+    ;
+    ; Keep color in range 1-15.
+    ; Zero/black is skipped because background is black.
+    ; --------------------------------------------------------
+
+    inc ScrollColor
+
+    lda ScrollColor
+    and #$0F
+    sta ScrollColor
+
+    bne ScrollColorDone
+
+    lda #1
+    sta ScrollColor
+
+
+ScrollColorDone:
+
+    ; --------------------------------------------------------
+    ; Advance scrolling message position.
     ; --------------------------------------------------------
 
     inc ScrollTextIndex
 
-    rts
 
+    ; --------------------------------------------------------
+    ; Restore original TextColumn value.
+    ; --------------------------------------------------------
+
+    pla
+    sta TextColumn
+
+    rts
+    
 ; ============================================================
 ; TEXT MOVEMENT UPDATE
 ; ============================================================
@@ -516,30 +583,26 @@ ScrollText:
 ; ============================================================
 
 TextColumn:
-
     !byte 15
 
 
 TextRow:
-
     !byte 10
 
 
 TextDirection:
-
     !byte TEXT_DIR_RIGHT
 
 
 TextColor:
-
     !byte 1
 
 
 FrameCounter:
-
     !byte 0
 
 ScrollTextIndex:
-
     !byte 0
 
+ScrollColor:
+    !byte 1
