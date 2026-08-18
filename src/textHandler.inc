@@ -38,3 +38,25 @@ TEXT_DIR_LEFT   = 1
 
 TEXT_MIN_COL    = 2
 TEXT_MAX_COL    = 28
+
+; ============================================================
+; FRAME TIMING CONSTANTS
+; ============================================================
+
+RASTER_LINE         = $D012
+RASTER_IRQ_ENABLE   = $D01A
+RASTER_IRQ_STATUS   = $D019
+VIC_CONTROL_1       = $D011
+
+IRQ_VECTOR_LO       = $0314
+IRQ_VECTOR_HI       = $0315
+
+CIA1_IRQ_CONTROL    = $DC0D
+
+TEXT_UPDATE_DELAY   = 6
+
+; Raster line used for screen updates.
+; Keep screen-memory changes down in the lower border rather
+; than modifying visible text while the VIC is displaying it.
+
+RASTER_UPDATE_LINE  = 250

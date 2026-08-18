@@ -5,7 +5,7 @@
 ; Assembler: ACME
 ; ============================================================
 
-!to "blastshaft.prg", cbm
+!to "build/blastshaft.prg", cbm
 
 
 ; ============================================================
@@ -106,6 +106,14 @@ Initialization:
 
 
     ; --------------------------------------------------------
+    ; Initialize frame counter.
+    ; --------------------------------------------------------
+
+    lda #0
+    sta FrameCounter
+
+
+    ; --------------------------------------------------------
     ; Set pointer to the BLASTSHAFT text.
     ; --------------------------------------------------------
 
@@ -131,82 +139,106 @@ Initialization:
 MainLoop:
 
     ; --------------------------------------------------------
-    ; Wait for the next video frame.
+    ; Wait until the VIC is below the visible game area.
     ; --------------------------------------------------------
 
-    jsr WaitForFrame
+    jsr WaitForOffscreenUpdate
 
 
     ; --------------------------------------------------------
-    ; Erase BLASTSHAFT at its CURRENT position.
+    ; Count video frames.
+    ; --------------------------------------------------------
+
+    inc FrameCounter
+
+
+    ; --------------------------------------------------------
+    ; Only move the text once every six frames.
     ;
-    ; This must happen BEFORE changing TextColumn.
+    ; We still synchronize every frame, but most frames require
+    ; no screen-memory changes.
     ; --------------------------------------------------------
+
+    lda FrameCounter
+    cmp #6
+    bcc MainLoop
+
+
+    ; --------------------------------------------------------
+    ; Reset movement timer.
+    ; --------------------------------------------------------
+
+    lda #0
+    sta FrameCounter
+
+
+; ============================================================
+; OFF-SCREEN TEXT UPDATE
+;
+; The VIC is now below the main visible display.
+;
+; All erase / state change / redraw work happens here.
+; ============================================================
+
+OffscreenTextUpdate:
+
+    ; Erase text from its old position.
 
     jsr Text_EraseAt
 
 
-    ; --------------------------------------------------------
-    ; Update horizontal position.
-    ; --------------------------------------------------------
+    ; Calculate its new state.
 
     jsr UpdateTextBounceX
-
-
-    ; --------------------------------------------------------
-    ; Update text color.
-    ; --------------------------------------------------------
-
     jsr UpdateTextColor
 
 
-    ; --------------------------------------------------------
-    ; Draw BLASTSHAFT at its NEW position.
-    ; --------------------------------------------------------
+    ; Draw text at its new position.
 
     jsr Text_PrintAt
 
 
-    ; --------------------------------------------------------
-    ; Repeat forever.
-    ; --------------------------------------------------------
+    ; Return to frame synchronization.
 
     jmp MainLoop
-
-
 
 ; ============================================================
 ; FRAME TIMING
 ; ============================================================
 
-WaitForFrame:
+; ============================================================
+; WAIT FOR OFF-SCREEN UPDATE AREA
+;
+; Wait until the VIC reaches our selected lower-border
+; raster line.
+;
+; Screen changes are performed immediately after this routine
+; returns, keeping erase/update/redraw work away from the
+; main visible display area.
+; ============================================================
 
-    ; --------------------------------------------------------
-    ; Wait until raster reaches line 250.
-    ; --------------------------------------------------------
+WaitForOffscreenUpdate:
 
-WaitForRaster250:
+WaitForUpdateRaster:
 
     lda RASTER_LINE
-    cmp #250
-    bne WaitForRaster250
+    cmp #RASTER_UPDATE_LINE
+    bne WaitForUpdateRaster
 
 
     ; --------------------------------------------------------
-    ; Wait until raster leaves line 250.
+    ; Wait until the VIC leaves the selected raster line.
     ;
-    ; Without this second loop, the program could return and
-    ; detect line 250 again during the same frame.
+    ; This guarantees one detection per video frame.
     ; --------------------------------------------------------
 
-WaitForRaster250End:
+WaitForUpdateRasterEnd:
 
     lda RASTER_LINE
-    cmp #250
-    beq WaitForRaster250End
+    cmp #RASTER_UPDATE_LINE
+    beq WaitForUpdateRasterEnd
 
     rts
-
 
 
 ; ============================================================
@@ -378,3 +410,8 @@ TextDirection:
 TextColor:
 
     !byte 1
+
+
+FrameCounter:
+
+    !byte 0
