@@ -1,6 +1,6 @@
 ; ============================================================
 ; BLASTSHAFT
-; C64U PROOF OF CONCEPT
+; C64U TEXT HANDLER PROOF OF CONCEPT
 ;
 ; Assembler: ACME
 ; ============================================================
@@ -11,11 +11,7 @@
 ; ============================================================
 ; BASIC LOADER
 ;
-; Creates:
-;
 ; 10 SYS 2064
-;
-; Machine code begins at $0810.
 ; ============================================================
 
 * = $0801
@@ -47,19 +43,15 @@ Start:
 Initialization:
 
     ; --------------------------------------------------------
-    ; Disable normal maskable interrupts for this test.
-    ;
-    ; We are NOT installing our own IRQ yet.
-    ;
-    ; This prevents the normal KERNAL IRQ from interfering
-    ; with the zero-page locations used by our text handler.
+    ; No custom IRQ yet.
+    ; Raster polling is used for this proof of concept.
     ; --------------------------------------------------------
 
     sei
 
 
     ; --------------------------------------------------------
-    ; Set border and background to black.
+    ; SCREEN COLORS
     ; --------------------------------------------------------
 
     lda #0
@@ -68,14 +60,14 @@ Initialization:
 
 
     ; --------------------------------------------------------
-    ; Clear screen.
+    ; CLEAR SCREEN
     ; --------------------------------------------------------
 
     jsr Text_ClearScreen
 
 
     ; --------------------------------------------------------
-    ; Initialize BLASTSHAFT text position.
+    ; INITIAL TEXT POSITION
     ; --------------------------------------------------------
 
     lda #15
@@ -86,27 +78,29 @@ Initialization:
 
 
     ; --------------------------------------------------------
-    ; Initialize movement direction.
-    ;
-    ; Start moving toward the right.
+    ; BOUNCE DIRECTIONS
     ; --------------------------------------------------------
 
     lda #TEXT_DIR_RIGHT
-    sta TextDirection
+    sta TextDirectionX
+
+    lda #TEXT_DIR_DOWN
+    sta TextDirectionY
 
 
     ; --------------------------------------------------------
-    ; Initialize text color.
-    ;
-    ; C64 color 1 = white.
+    ; TEXT COLOR
     ; --------------------------------------------------------
 
     lda #1
     sta TextColor
 
+    lda #1
+    sta ScrollColor
+
 
     ; --------------------------------------------------------
-    ; Initialize frame counter.
+    ; FRAME COUNTER
     ; --------------------------------------------------------
 
     lda #0
@@ -114,7 +108,31 @@ Initialization:
 
 
     ; --------------------------------------------------------
-    ; Set pointer to the BLASTSHAFT text.
+    ; SCROLLER STATE
+    ; --------------------------------------------------------
+
+    lda #0
+    sta ScrollTextIndex
+    sta ScrollRightTextIndex
+
+
+    ; --------------------------------------------------------
+    ; SINE STATE
+    ; --------------------------------------------------------
+
+    lda #0
+    sta SinePhase
+    sta SineCharacterIndex
+
+    lda #8
+    sta SineBaseRow
+
+    lda #14
+    sta SineBaseColumn
+
+
+    ; --------------------------------------------------------
+    ; STRING POINTER
     ; --------------------------------------------------------
 
     lda #<BlastshaftText
@@ -125,11 +143,23 @@ Initialization:
 
 
     ; --------------------------------------------------------
-    ; Draw the initial text.
+    ; INITIAL DRAW
+    ;
+    ; Sine draws itself differently, so don't use PrintAt
+    ; for sine mode.
     ; --------------------------------------------------------
 
-    jsr Text_PrintAt
+    lda TextMovementMode
+    cmp #TEXT_MODE_SINE
+    beq InitialDrawSine
 
+    jsr Text_PrintAt
+    jmp MainLoop
+
+
+InitialDrawSine:
+
+    jsr Text_DrawSine
 
 
 ; ============================================================
@@ -138,45 +168,20 @@ Initialization:
 
 MainLoop:
 
-    ; --------------------------------------------------------
-    ; Wait until the VIC is below the visible game area.
-    ; --------------------------------------------------------
-
     jsr WaitForOffscreenUpdate
-
-
-    ; --------------------------------------------------------
-    ; Count video frames.
-    ; --------------------------------------------------------
 
     inc FrameCounter
 
-
-    ; --------------------------------------------------------
-    ; Only move the text once every six frames.
-    ;
-    ; We still synchronize every frame, but most frames require
-    ; no screen-memory changes.
-    ; --------------------------------------------------------
-
     lda FrameCounter
-    cmp #6
+    cmp #TEXT_UPDATE_DELAY
     bcc MainLoop
-
-
-    ; --------------------------------------------------------
-    ; Reset movement timer.
-    ; --------------------------------------------------------
 
     lda #0
     sta FrameCounter
 
+
 ; ============================================================
-; OFF-SCREEN TEXT UPDATE
-;
-; The VIC is now below the main visible display.
-;
-; Select and run the active text movement mode.
+; OFF-SCREEN UPDATE
 ; ============================================================
 
 OffscreenTextUpdate:
@@ -185,22 +190,13 @@ OffscreenTextUpdate:
 
     jmp MainLoop
 
+
 ; ============================================================
 ; FRAME TIMING
 ; ============================================================
 
-; ============================================================
-; WAIT FOR OFF-SCREEN UPDATE AREA
-;
-; Wait until the VIC reaches our selected lower-border
-; raster line.
-;
-; Screen changes are performed immediately after this routine
-; returns, keeping erase/update/redraw work away from the
-; main visible display area.
-; ============================================================
-
 WaitForOffscreenUpdate:
+
 
 WaitForUpdateRaster:
 
@@ -208,12 +204,6 @@ WaitForUpdateRaster:
     cmp #RASTER_UPDATE_LINE
     bne WaitForUpdateRaster
 
-
-    ; --------------------------------------------------------
-    ; Wait until the VIC leaves the selected raster line.
-    ;
-    ; This guarantees one detection per video frame.
-    ; --------------------------------------------------------
 
 WaitForUpdateRasterEnd:
 
@@ -223,373 +213,133 @@ WaitForUpdateRasterEnd:
 
     rts
 
+
 ; ============================================================
-; TEXT MOVEMENT DISPATCHER
-;
-; Reads TextMovementMode and calls the matching movement
-; routine.
-;
-; Current modes:
-;
-;   TEXT_MODE_BOUNCE_X
-;   TEXT_MODE_SCROLL_LEFT
+; MOVEMENT DISPATCHER
 ; ============================================================
 
 UpdateTextMovement:
 
     lda TextMovementMode
 
+    cmp #TEXT_MODE_STATIC
+    beq RunTextStatic
+
     cmp #TEXT_MODE_BOUNCE_X
     beq RunTextBounceX
+
+    cmp #TEXT_MODE_BOUNCE_Y
+    beq RunTextBounceY
 
     cmp #TEXT_MODE_SCROLL_LEFT
     beq RunTextScrollLeft
 
-    ; Unknown mode - do nothing.
+    cmp #TEXT_MODE_SCROLL_RIGHT
+    beq RunTextScrollRight
+
+    cmp #TEXT_MODE_SINE
+    beq RunTextSine
 
     rts
 
 
-RunTextBounceX:
+; ============================================================
+; STATIC TEXT
+; ============================================================
 
-    ; --------------------------------------------------------
-    ; Bounce mode works by erasing the old string,
-    ; changing its position and color, then redrawing it.
-    ; --------------------------------------------------------
+RunTextStatic:
+
+    lda TextColorMode
+    cmp #TEXT_COLOR_CYCLE
+    bne RunTextStaticDone
 
     jsr Text_EraseAt
-    jsr UpdateTextBounceX
-    jsr UpdateTextColor
+    jsr Text_UpdateColor
+    jsr Text_PrintAt
+
+
+RunTextStaticDone:
+
+    rts
+
+
+; ============================================================
+; HORIZONTAL BOUNCE
+; ============================================================
+
+RunTextBounceX:
+
+    jsr Text_EraseAt
+
+    jsr Text_UpdateBounceX
+    jsr Text_UpdateColor
+
     jsr Text_PrintAt
 
     rts
 
 
+; ============================================================
+; VERTICAL BOUNCE
+; ============================================================
+
+RunTextBounceY:
+
+    jsr Text_EraseAt
+
+    jsr Text_UpdateBounceY
+    jsr Text_UpdateColor
+
+    jsr Text_PrintAt
+
+    rts
+
+
+; ============================================================
+; SCROLL LEFT
+; ============================================================
+
 RunTextScrollLeft:
 
-    ; --------------------------------------------------------
-    ; Scroll mode shifts an entire character row and its
-    ; matching Color RAM one position left.
-    ; --------------------------------------------------------
-
-    jsr UpdateTextScrollLeft
+    jsr Text_UpdateColor
+    jsr Text_UpdateScrollLeft
 
     rts
 
 
 ; ============================================================
-; TEXT SCROLL LEFT
-;
-; Shifts one complete 40-character screen row left by one
-; character position.
-;
-; Screen RAM and Color RAM are shifted together.
-;
-; A new character from ScrollText is inserted at column 39.
-; The new character uses TextColor.
-;
-; ScrollText is zero terminated. When the terminator is
-; reached, ScrollTextIndex returns to zero and the message
-; begins again.
+; SCROLL RIGHT
 ; ============================================================
 
-UpdateTextScrollLeft:
+RunTextScrollRight:
 
-    ; --------------------------------------------------------
-    ; Calculate address of column 0 on the scrolling row.
-    ;
-    ; Text_CalculateScreenPosition uses TextColumn, so save
-    ; the current value before temporarily setting it to zero.
-    ; --------------------------------------------------------
-
-    lda TextColumn
-    pha
-
-    lda #0
-    sta TextColumn
-
-    jsr Text_CalculateScreenPosition
-
-
-    ; --------------------------------------------------------
-    ; SHIFT SCREEN RAM LEFT
-    ;
-    ; column 1  -> column 0
-    ; column 2  -> column 1
-    ; ...
-    ; column 39 -> column 38
-    ; --------------------------------------------------------
-
-    ldy #0
-
-
-ScrollLeftCharacterLoop:
-
-    iny
-    lda (ScreenPtrLo),y
-
-    dey
-    sta (ScreenPtrLo),y
-
-    iny
-    cpy #39
-    bne ScrollLeftCharacterLoop
-
-
-    ; --------------------------------------------------------
-    ; Get next character from scrolling text.
-    ; --------------------------------------------------------
-
-    ldy ScrollTextIndex
-
-    lda ScrollText,y
-
-    ; Zero means end of message.
-
-    bne ScrollLeftCharacterReady
-
-
-    ; --------------------------------------------------------
-    ; Restart message from beginning.
-    ; --------------------------------------------------------
-
-    lda #0
-    sta ScrollTextIndex
-
-    tay
-
-    lda ScrollText,y
-
-ScrollLeftCharacterReady:
-
-    ; --------------------------------------------------------
-    ; Put new character into column 39 of SCREEN RAM.
-    ;
-    ; A currently contains the character from ScrollText.
-    ; --------------------------------------------------------
-
-    ldy #39
-    sta (ScreenPtrLo),y
-
-
-    ; --------------------------------------------------------
-    ; Convert screen pointer into matching COLOR RAM pointer.
-    ;
-    ; $D800 - $0400 = $D400
-    ; --------------------------------------------------------
-
-    clc
-
-    lda ScreenPtrHi
-    adc #$D4
-    sta ScreenPtrHi
-
-
-    ; --------------------------------------------------------
-    ; SHIFT COLOR RAM LEFT
-    ;
-    ; column 1  -> column 0
-    ; column 2  -> column 1
-    ; ...
-    ; column 39 -> column 38
-    ; --------------------------------------------------------
-
-    ldy #0
-
-ScrollLeftColorLoop:
-
-    iny
-    lda (ScreenPtrLo),y
-
-    dey
-    sta (ScreenPtrLo),y
-
-    iny
-    cpy #39
-    bne ScrollLeftColorLoop
-
-
-    ; --------------------------------------------------------
-    ; Set color for newly inserted character.
-    ; --------------------------------------------------------
-
-    ldy #39
-
-    lda ScrollColor
-    sta (ScreenPtrLo),y
-
-
-    ; --------------------------------------------------------
-    ; Advance scroll color.
-    ;
-    ; Keep color in range 1-15.
-    ; Zero/black is skipped because background is black.
-    ; --------------------------------------------------------
-
-    inc ScrollColor
-
-    lda ScrollColor
-    and #$0F
-    sta ScrollColor
-
-    bne ScrollColorDone
-
-    lda #1
-    sta ScrollColor
-
-
-ScrollColorDone:
-
-    ; --------------------------------------------------------
-    ; Advance scrolling message position.
-    ; --------------------------------------------------------
-
-    inc ScrollTextIndex
-
-
-    ; --------------------------------------------------------
-    ; Restore original TextColumn value.
-    ; --------------------------------------------------------
-
-    pla
-    sta TextColumn
-
-    rts
-
-; ============================================================
-; TEXT MOVEMENT UPDATE
-; ============================================================
-
-UpdateTextBounceX:
-
-    ; --------------------------------------------------------
-    ; Check current direction.
-    ; --------------------------------------------------------
-
-    lda TextDirection
-    cmp #TEXT_DIR_RIGHT
-    beq MoveTextRight
-
-
-
-; ------------------------------------------------------------
-; MOVE TEXT LEFT
-; ------------------------------------------------------------
-
-MoveTextLeft:
-
-    ; Have we reached the left boundary?
-
-    lda TextColumn
-    cmp #TEXT_MIN_COL
-    beq ChangeDirectionRight
-
-
-    ; No.
-    ; Move one character column left.
-
-    dec TextColumn
-    rts
-
-
-
-; ------------------------------------------------------------
-; CHANGE DIRECTION TO RIGHT
-; ------------------------------------------------------------
-
-ChangeDirectionRight:
-
-    lda #TEXT_DIR_RIGHT
-    sta TextDirection
-
-    inc TextColumn
+    jsr Text_UpdateColor
+    jsr Text_UpdateScrollRight
 
     rts
 
 
+; ============================================================
+; SINE
+; ============================================================
 
-; ------------------------------------------------------------
-; MOVE TEXT RIGHT
-; ------------------------------------------------------------
+RunTextSine:
 
-MoveTextRight:
+    jsr Text_EraseSine
 
-    ; Have we reached the right boundary?
+    jsr Text_UpdateSinePhase
+    jsr Text_UpdateColor
 
-    lda TextColumn
-    cmp #TEXT_MAX_COL
-    beq ChangeDirectionLeft
-
-
-    ; No.
-    ; Move one character column right.
-
-    inc TextColumn
-    rts
-
-
-
-; ------------------------------------------------------------
-; CHANGE DIRECTION TO LEFT
-; ------------------------------------------------------------
-
-ChangeDirectionLeft:
-
-    lda #TEXT_DIR_LEFT
-    sta TextDirection
-
-    dec TextColumn
+    jsr Text_DrawSine
 
     rts
 
 
-
 ; ============================================================
-; TEXT COLOR UPDATE
-; ============================================================
-
-UpdateTextColor:
-
-    ; --------------------------------------------------------
-    ; Advance to the next C64 color.
-    ; --------------------------------------------------------
-
-    inc TextColor
-
-
-    ; --------------------------------------------------------
-    ; C64 colors are 0-15.
-    ;
-    ; Mask off everything above the lower four bits.
-    ; --------------------------------------------------------
-
-    lda TextColor
-    and #$0F
-    sta TextColor
-
-
-    ; --------------------------------------------------------
-    ; Avoid black because our background is black.
-    ; --------------------------------------------------------
-
-    bne TextColorDone
-
-    lda #1
-    sta TextColor
-
-
-TextColorDone:
-
-    rts
-
-
-
-; ============================================================
-; TEXT HANDLER ROUTINES
+; TEXT HANDLER
 ; ============================================================
 
 !source "src/textHandler.asm"
-
 
 
 ; ============================================================
@@ -602,10 +352,40 @@ BlastshaftText:
     !byte 0
 
 
+; ------------------------------------------------------------
+; LEFT SCROLLER
+; ------------------------------------------------------------
+
 ScrollText:
 
     !scr "blastshaft   "
     !byte 0
+
+
+; ------------------------------------------------------------
+; RIGHT SCROLLER
+;
+; Stored backwards because characters enter from the left.
+; ------------------------------------------------------------
+
+ScrollRightText:
+
+    !scr "   tfahstsalb"
+    !byte 0
+
+
+; ------------------------------------------------------------
+; CHUNKY SINE TABLE
+;
+; Offsets are added to SineBaseRow.
+; ------------------------------------------------------------
+
+SineTable:
+
+    !byte 2,3,4,5
+    !byte 4,3,2,1
+    !byte 0,1,2,3
+    !byte 4,3,2,1
 
 
 ; ============================================================
@@ -618,21 +398,55 @@ TextColumn:
 TextRow:
     !byte 10
 
-TextDirection:
+
+TextDirectionX:
     !byte TEXT_DIR_RIGHT
+
+TextDirectionY:
+    !byte TEXT_DIR_DOWN
+
 
 TextColor:
     !byte 1
 
+ScrollColor:
+    !byte 1
+
+
 FrameCounter:
     !byte 0
+
 
 ScrollTextIndex:
     !byte 0
 
-ScrollColor:
-    !byte 1
+ScrollRightTextIndex:
+    !byte 0
+
+
+SinePhase:
+    !byte 0
+
+SineCharacterIndex:
+    !byte 0
+
+SineCharacterValue:
+    !byte 0
+
+SineBaseRow:
+    !byte 8
+
+SineBaseColumn:
+    !byte 14
+
+; ============================================================
+; TEXT HANDLER TEST CONFIGURATION
+;
+; THIS IS THE SECTION TO CHANGE WHEN TESTING.
+; ============================================================
 
 TextMovementMode:
-    // !byte TEXT_MODE_SCROLL_LEFT?
-    !byte TEXT_MODE_BOUNCE_X
+    !byte TEXT_MODE_SINE
+
+TextColorMode:
+    !byte TEXT_COLOR_CYCLE
